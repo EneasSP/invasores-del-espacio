@@ -106,7 +106,11 @@ kbd { font: inherit; color: var(--phosphor); }
 <script>
 (() => {
   const W = 224, H = 256, PLAYER_Y = 224, GROUND_Y = 239;
-  const MAX_BULLETS = 2, FIRE_COOLDOWN = .2;
+  const FIRE_COOLDOWN = .2;
+  const MODES = {
+    facil: { label: 'FÁCIL', shots: 2, desc: '2 DISPAROS A LA VEZ' },
+    dificil: { label: 'DIFÍCIL', shots: 1, desc: '1 DISPARO A LA VEZ' },
+  };
   const FONT = '"Press Start 2P", ui-monospace, Consolas, monospace';
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -140,9 +144,28 @@ kbd { font: inherit; color: var(--phosphor); }
       parse(['.....X.......', '..X.....X....', '.....X.X...X.', '..X.XX.XX....', 'X..XXXXXX..X.', '.XXXXXXXXXX..', 'XXXXXXXXXXXXX', 'XXXXXXXXXXXXX']),
       parse(['X.......X...X', '...X.X.......', '.X....X...X..', '....X...X....', '.X..XX.XX..X.', '..XXXXXXXX...', '.XXXXXXXXXXX.', 'XXXXXXXXXXXXX']),
     ],
+    /* newcomers: one more kind joins the top of the formation on each new wave */
+    jelly: [
+      parse(['...XXXX...', '.XXXXXXXX.', 'XX..XX..XX', 'XXXXXXXXXX', '..XX..XX..', '.X..XX..X.', 'X.X....X.X', '.X......X.']),
+      parse(['...XXXX...', '.XXXXXXXX.', 'XX..XX..XX', 'XXXXXXXXXX', '..XX..XX..', '..X.XX.X..', '.X.X..X.X.', 'X..X..X..X']),
+    ],
+    eye: [
+      parse(['....XXX....', '..XXXXXXX..', '.XXX...XXX.', 'XXX..X..XXX', '.XXX...XXX.', '..XXXXXXX..', '.X..X.X..X.', 'X..X...X..X']),
+      parse(['....XXX....', '..XXXXXXX..', '.XXX...XXX.', 'XXX.X.X.XXX', '.XXX...XXX.', '..XXXXXXX..', '..X.X.X.X..', '.X..X.X..X.']),
+    ],
+    bat: [
+      parse(['X..........X', 'XX..X..X..XX', 'XXX.XXXX.XXX', 'XXXXX..XXXXX', '.XXXXXXXXXX.', '..XXXXXXXX..', '...XX..XX...', '....X..X....']),
+      parse(['............', '....X..X....', '..X.XXXX.X..', '.XXXX..XXXX.', 'XXXXXXXXXXXX', 'X.XXXXXXXX.X', 'X..XX..XX..X', '....X..X....']),
+    ],
+    robot: [
+      parse(['..X....X..', '...X..X...', '.XXXXXXXX.', '.X.XXXX.X.', '.XXXXXXXX.', '..X.XX.X..', '.XX....XX.', 'XX......XX']),
+      parse(['..X....X..', '...X..X...', '.XXXXXXXX.', '.XX.XX.XX.', '.XXXXXXXX.', '..X.XX.X..', '..XX..XX..', '...X..X...']),
+    ],
   };
-  const ROW_TYPE = ['squid', 'crab', 'crab', 'octo', 'octo'];
-  const ROW_POINTS = [30, 20, 20, 10, 10];
+  const MODE_SPOTS = [['facil', 64], ['dificil', 160]];
+  const BASE_ROWS = [['squid', 30], ['crab', 20], ['crab', 20], ['octo', 10], ['octo', 10]];
+  const NEWCOMERS = ['jelly', 'eye', 'bat', 'robot'];
+  const NEWCOMER_POINTS = 40;
   const UFO_POINTS = [50, 100, 150, 300];
 
   const draw = (grid, x, y) => {
@@ -215,7 +238,10 @@ kbd { font: inherit; color: var(--phosphor); }
 
   /* ---------- game state ---------- */
   let state = 'title', resumeTo = 'play';
-  let score = 0, hi = Number(load('invasores-record', '0')) || 0, newRecord = false;
+  /* each mode keeps its own record; the old single record belongs to the one-shot game */
+  const loadRecord = m => Number(load(`invasores-record-${m}`, m === 'dificil' ? load('invasores-record', '0') : '0')) || 0;
+  let mode = load('invasores-modo', 'facil') === 'dificil' ? 'dificil' : 'facil';
+  let score = 0, hi = loadRecord(mode), newRecord = false;
   let lives = 3, wave = 1, extraGiven = false;
   let player, bullets, fireCooldown, bombs, aliens, bunkers, ufo, blasts, floats;
   let form, stepTimer, frame, bombTimer, ufoTimer, invuln, dyingT, clearT, overT;
@@ -248,7 +274,10 @@ kbd { font: inherit; color: var(--phosphor); }
 
   const buildWave = () => {
     aliens = [];
-    for (let r = 0; r < 5; r++) for (let c = 0; c < 11; c++) aliens.push({ r, c, alive: true });
+    const rows = wave > 1 ? [[NEWCOMERS[(wave - 2) % NEWCOMERS.length], NEWCOMER_POINTS], ...BASE_ROWS] : BASE_ROWS;
+    rows.forEach(([type, pts], r) => {
+      for (let c = 0; c < 11; c++) aliens.push({ r, c, type, pts, alive: true });
+    });
     form = { x: 24, y: 38 + 8 * Math.min(wave - 1, 4), dir: 1 };
     stepTimer = .6; frame = 0;
     bombTimer = 1.4;
@@ -270,7 +299,7 @@ kbd { font: inherit; color: var(--phosphor); }
   };
 
   const alienBox = a => {
-    const w = SPR[ROW_TYPE[a.r]][0][0].length;
+    const w = SPR[a.type][0][0].length;
     return { x: form.x + a.c * 16 + (16 - w) / 2, y: form.y + a.r * 14, w, h: 8 };
   };
   const aliveAliens = () => aliens.filter(a => a.alive);
@@ -314,7 +343,7 @@ kbd { font: inherit; color: var(--phosphor); }
     overT = 0;
     fireLatch = true;
     stopUfoSound();
-    save('invasores-record', String(hi));
+    save(`invasores-record-${mode}`, String(hi));
   };
 
   const stepFormation = () => {
@@ -394,7 +423,7 @@ kbd { font: inherit; color: var(--phosphor); }
         const b = alienBox(a);
         if (bullet.x >= b.x && bullet.x < b.x + b.w && bullet.y >= b.y && bullet.y < b.y + b.h) {
           a.alive = false;
-          addScore(ROW_POINTS[a.r]);
+          addScore(a.pts);
           blasts.push({ x: b.x + b.w / 2 - 6.5, y: b.y, t: .22, spr: SPR.boom });
           boom(.16, .16, 2800);
           if (!aliveAliens().length) {
@@ -448,8 +477,9 @@ kbd { font: inherit; color: var(--phosphor); }
     invuln = Math.max(0, invuln - dt);
 
     fireCooldown = Math.max(0, fireCooldown - dt);
-    if (bullets.length >= MAX_BULLETS) fireQueued = false;
-    if (bullets.length < MAX_BULLETS && fireCooldown <= 0 && (fireQueued || (keys.fire && !fireLatch))) {
+    const maxShots = MODES[mode].shots;
+    if (bullets.length >= maxShots) fireQueued = false;
+    if (bullets.length < maxShots && fireCooldown <= 0 && (fireQueued || (keys.fire && !fireLatch))) {
       bullets.push({ x: Math.round(player.x) + 6, y: PLAYER_Y });
       fireCooldown = FIRE_COOLDOWN;
       fireQueued = false;
@@ -462,7 +492,7 @@ kbd { font: inherit; color: var(--phosphor); }
     const n = aliveAliens().length;
     stepTimer -= dt;
     if (stepTimer <= 0) {
-      stepTimer += (.035 + .68 * (n - 1) / 54) * Math.max(.55, 1 - .07 * (wave - 1));
+      stepTimer += (.035 + .68 * (n - 1) / (aliens.length - 1)) * Math.max(.55, 1 - .07 * (wave - 1));
       stepFormation();
       if (state !== 'play') return;
     }
@@ -554,7 +584,7 @@ kbd { font: inherit; color: var(--phosphor); }
       for (const a of aliens) {
         if (!a.alive) continue;
         const box = alienBox(a);
-        draw(SPR[ROW_TYPE[a.r]][frame], box.x, box.y);
+        draw(SPR[a.type][frame], box.x, box.y);
       }
       if (ufo) draw(SPR.ufo, ufo.x, ufo.y);
 
@@ -626,11 +656,24 @@ kbd { font: inherit; color: var(--phosphor); }
       draw(spr, 72 - spr[0].length / 2, y);
       text(label, 90, y, 8);
     });
+    for (const [key, cx] of MODE_SPOTS) {
+      const label = MODES[key].label, w = label.length * 8 + 10;
+      ctx.fillStyle = key === mode ? '#4dffa0' : '#8d90b8';
+      text(label, cx, 160, 8, 'center');
+      if (key === mode) {
+        const x = Math.round(cx - w / 2);
+        ctx.fillRect(x, 155, w, 1);
+        ctx.fillRect(x, 170, w, 1);
+        ctx.fillRect(x, 155, 1, 16);
+        ctx.fillRect(x + w - 1, 155, 1, 16);
+      }
+    }
+    ctx.fillStyle = '#f4f0ff';
+    text(MODES[mode].desc, W / 2, 178, 8, 'center');
     ctx.fillStyle = '#8d90b8';
-    text(MOBILE ? 'BOTONES: MOVER' : 'FLECHAS: MOVER', W / 2, 168, 8, 'center');
-    text(MOBILE ? 'FUEGO: DISPARAR' : 'ESPACIO: DISPARAR', W / 2, 182, 8, 'center');
+    text(MOBILE ? 'BOTONES: ELEGIR MODO' : 'FLECHAS: ELEGIR MODO', W / 2, 196, 8, 'center');
     ctx.fillStyle = '#4dffa0';
-    if (blink()) text(MOBILE ? 'TOCÁ FUEGO: JUGAR' : 'ESPACIO O CLIC: JUGAR', W / 2, 212, 8, 'center');
+    if (blink()) text(MOBILE ? 'TOCÁ FUEGO: JUGAR' : 'ESPACIO: JUGAR', W / 2, 214, 8, 'center');
   };
 
   const render = () => {
@@ -641,19 +684,23 @@ kbd { font: inherit; color: var(--phosphor); }
       text('PAUSA', W / 2, 106, 16, 'center');
       text(MOBILE ? 'TOCÁ FUEGO: SEGUIR' : 'ESPACIO O CLIC: SEGUIR', W / 2, 134, 8, 'center');
     } else if (state === 'clear') {
-      scrim(108, 42);
-      text(`OLA ${wave} SUPERADA`, W / 2, 116, 8, 'center');
+      scrim(104, 58);
+      text(`OLA ${wave} SUPERADA`, W / 2, 112, 8, 'center');
       ctx.fillStyle = '#4dffa0';
-      text('BONO +100', W / 2, 132, 8, 'center');
+      text('BONO +100', W / 2, 128, 8, 'center');
+      ctx.fillStyle = '#ff4d6a';
+      if (blink()) text('LLEGAN INVASORES NUEVOS', W / 2, 146, 8, 'center');
     } else if (state === 'over') {
-      scrim(84, 86);
+      scrim(84, 90);
       ctx.fillStyle = '#ff4d6a';
       text('FIN DEL', W / 2, 92, 16, 'center');
       text('JUEGO', W / 2, 110, 16, 'center');
       ctx.fillStyle = newRecord ? '#4dffa0' : '#f4f0ff';
-      text(newRecord ? `RÉCORD ${pad6(score)}` : `PUNTOS ${pad6(score)}`, W / 2, 134, 8, 'center');
+      text(newRecord ? `RÉCORD ${pad6(score)}` : `PUNTOS ${pad6(score)}`, W / 2, 132, 8, 'center');
+      ctx.fillStyle = '#8d90b8';
+      text(`MODO ${MODES[mode].label}`, W / 2, 144, 8, 'center');
       ctx.fillStyle = '#f4f0ff';
-      if (overT > .8 && blink()) text(MOBILE ? 'FUEGO: OTRA VEZ' : 'ESPACIO: OTRA VEZ', W / 2, 152, 8, 'center');
+      if (overT > .8 && blink()) text(MOBILE ? 'FUEGO: CONTINUAR' : 'ESPACIO: CONTINUAR', W / 2, 160, 8, 'center');
     }
   };
 
@@ -671,12 +718,23 @@ kbd { font: inherit; color: var(--phosphor); }
     if (ac) ac.resume();
   };
 
-  /* Fire button or click: starts, resumes or restarts when not in play */
+  /* Fire button or click: starts, resumes, or goes back to the title to pick a mode */
   const act = () => {
     if (state === 'title') { newGame(); fireLatch = true; return true; }
     if (state === 'paused') { unpause(); return true; }
-    if (state === 'over') { if (overT > .8) { newGame(); fireLatch = true; } return true; }
+    if (state === 'over') { if (overT > .8) { state = 'title'; fireLatch = true; } return true; }
     return false;
+  };
+  /* true when the press was used to choose a mode on the title screen */
+  const chooseMode = m => {
+    if (state !== 'title') return false;
+    if (m !== mode) {
+      mode = m;
+      save('invasores-modo', mode);
+      hi = loadRecord(mode);
+      tone(m === 'facil' ? 660 : 440, .08);
+    }
+    return true;
   };
   const pressFire = () => {
     ensureAudio();
@@ -694,6 +752,7 @@ kbd { font: inherit; color: var(--phosphor); }
         e.preventDefault();
         ensureAudio();
         const right = e.code === 'ArrowRight';
+        if (chooseMode(right ? 'dificil' : 'facil')) break;
         if (!e.repeat && state === 'play') player.x = Math.max(4, Math.min(W - 17, player.x + (right ? 1.5 : -1.5)));
         keys[right ? 'right' : 'left'] = true;
         break;
@@ -721,10 +780,13 @@ kbd { font: inherit; color: var(--phosphor); }
   addEventListener('blur', pause);
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
 
-  canvas.addEventListener('pointerdown', () => {
+  canvas.addEventListener('pointerdown', e => {
     window.focus();
     ensureAudio();
-    act();
+    const r = canvas.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width * W, y = (e.clientY - r.top) / r.height * H;
+    if (state === 'title' && y >= 150 && y <= 186) chooseMode(x < W / 2 ? 'facil' : 'dificil');
+    else act();
   });
 
   const hold = (id, down, up) => {
@@ -742,8 +804,8 @@ kbd { font: inherit; color: var(--phosphor); }
     });
     el.addEventListener('contextmenu', e => e.preventDefault());
   };
-  hold('left', () => { keys.left = true; }, () => { keys.left = false; });
-  hold('right', () => { keys.right = true; }, () => { keys.right = false; });
+  hold('left', () => { if (!chooseMode('facil')) keys.left = true; }, () => { keys.left = false; });
+  hold('right', () => { if (!chooseMode('dificil')) keys.right = true; }, () => { keys.right = false; });
   hold('fire', pressFire, releaseFire);
 
   /* ---------- sizing and main loop ---------- */
